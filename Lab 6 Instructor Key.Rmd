@@ -1,0 +1,366 @@
+---
+title: "Lab 6 Instructor Key"
+author: "Allison Horst"
+date: "February 9, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Goals: 
+
+- Read in spatial data (shapefiles)
+- Simplify polygons (st_simplify)
+- Add and transform projection (st_transform and st_crs)
+- Create several finalized-ish maps in R
+- Join spatial data (st_join)
+- Find spatial intersections (st_intersect)
+- Interactive plots with tmap
+- Updating color schemes, base layers, etc.
+- Plotting spatial lines
+- Creating sf data from lat/lon coordinates
+
+Awesome resource: 
+*Geocomputation in R* by Robin Lovelace, available online: 
+<https://geocompr.robinlovelace.net/>
+
+```{r}
+library(tidyverse)
+library(sf)
+library(tmap)
+library(leaflet)
+library(ggrepel)
+library(ggspatial)
+library(RColorBrewer)
+library(raster)
+```
+
+###Useful information on shapefile files (from gisgeography.com):
+
+- **.shp** is a mandatory Esri file that gives features their geometry. Every shapefile has its own .shp file that represent spatial vector data. For example, it could be points, lines and polygons in a map.
+
+- **.shx** are mandatory Esri and AutoCAD shape index position. This type of file is used to search forward and backwards.
+
+- **.dbf** is a standard database file used to store attribute data and object IDs. A .dbf file is mandatory for shape files. You can open .DBF files in Microsoft Access or Excel.
+
+- **.prj** is an optional file that contains the metadata associated with the shapefiles coordinate and projection system. If this file does not exist, you will get the error “unknown coordinate system”. If you want to fix this error, you have to use the “define projection” tool which generates .prj files.
+
+- **.xml** file types contains the metadata associated with the shapefile. If you delete this file, you essentially delete your metadata. You can open and edit this optional file type (.xml) in any text editor.
+
+- **.sbn** is an optional spatial index file that optimizes spatial queries. This file type is saved together with a .sbx file. These two files make up a shape index to speed up spatial queries.
+
+- **.sbx** are similar to .sbn files in which they speed up loading times. It works with .sbn files to optimize spatial queries. We tested .sbn and .sbx extensions and found that there were faster load times when these files existed. It was 6 seconds faster (27.3 sec versus 33.3 sec) compared with/without .sbn and .sbx files.
+
+- **.cpg** are optional plain text files that describes the encoding applied to create the shapefile. If your shapefile doesn’t have a cpg file, then it has the system default encoding. 
+
+###Mapping Examples
+
+####Example 1: Dammed California
+
+Data: California Jurisdictional Dams
+
+Accessed from: <https://hub.arcgis.com/datasets/98a09bec89c84681ae1701a2eb62f599_0/data?geometry=-150.074%2C31.096%2C-87.54%2C43.298&page=10>
+
+"This dataset is a feature class identifying all dams currently under the jurisdiction of the Division of Safety of Dams (DSOD). The dataset is extracted from DSOD internal records and contains basic information about the dam including the type of construction, basic dimensions such as height, length, and maximum storage capacity; abbreviated owner information to identify the entity legally responsible for the dam; an assessment of the downstream hazard associated with the dam; an assessment of the current condition of the dam; and indication as to whether the dam is operating at a restricted storage level. Several dams span rivers that define county boundaries, so DSOD references the right abutment of the dam to identify the location of the structure and to associate it with a singular administrative subdivision of California."
+
+Data: California eco-regions (EPA)
+
+Accessed from: <https://www.epa.gov/eco-research/ecoregion-download-files-state-region-9>
+
+Data: California counties
+
+Accessed from: 
+
+a. Read in the California ecoregions data (layer "ca_eco"), select only the attribute for eco-region (US_L3NAME), rename that to "Region", simplify the polygons (for time) using st_simplify, and set the CRS:
+```{r}
+
+ca_eco <- read_sf(dsn = ".", layer = "ca_eco") %>% # Get data!
+  dplyr::select(US_L3NAME) %>% # Only select column with eco-regions
+  rename(Region = US_L3NAME) %>% # Rename that column to "Region"
+  st_simplify(dTolerance = 10) %>% # Simplify polygons (for time)
+  st_transform(crs = 4326) # Change CRS to 4326
+
+# Check projection using st_crs(ca_eco)
+
+```
+
+b. Read in the California Counties shapefile data, and set CRS:
+```{r}
+
+ca_counties <- read_sf(dsn = ".", layer = "california_county_shape_file") # Read data
+
+st_crs(ca_counties) = 4326 # Set CRS
+
+```
+
+c. Read in the CA dams data
+```{r}
+ca_dams <- read_sf(dsn = ".", layer = "California_Jurisdictional_Dams") %>% # Read data
+  rename(Condition = Condition_) # Change column name (remove final _)
+
+ca_dams$Condition <- fct_relevel(ca_dams$Condition, "Fair","Satisfactory","Unsatisfactory","Poor") # Set factor levels (not sure if using this later...)
+
+```
+
+d. Make some plots with base
+```{r}
+
+plot(ca_eco) # Will try to plot all attributes (this can take a long time - we've already filtered to just plot one)
+
+plot(ca_counties) # See here - all attributes plotted!
+
+```
+
+e. Make a map with ggplot
+
+```{r}
+
+# Create a color palette with enough colors (we have 13 eco-regions...more than default RColorBrewer palettes)
+
+color_count <- 13
+mycolors <- colorRampPalette(brewer.pal(10, "Set2"))(color_count)
+
+# Plot eco-regions in CA, plus county lines and dam locations, with ggplot + geom_sf: 
+
+ggplot(ca_eco) + 
+  geom_sf(aes(fill = Region), 
+          color = "NA", 
+          show.legend = FALSE) +
+  scale_fill_manual(values = mycolors) +
+  geom_sf(data = ca_counties, 
+          fill = "NA", 
+          color = "gray30", 
+          size = 0.1) +
+  geom_point(data = ca_dams, 
+             aes(x = Longitude, y = Latitude), 
+             size = 1, 
+             color = "gray10", 
+             alpha = 0.5) +
+  theme_minimal() +
+  coord_sf(datum=NA) +
+  labs(x = "", y = "", title = "CA State Jurisdiction Dams")
+
+# Note: could also make this a bubble plot by adjusting size based on a parameter
+ 
+```
+
+####Example 2. Dams in the Sierra Nevada eco-region
+
+What if I only wanted to look at dams within the Sierra Nevada Eco-Region? Join spatial data using st_join. 
+
+Use st_join with only the Sierra Nevada eco-region selected:
+
+```{r}
+
+# Join Sierra Nevada eco-region with ca_dams data: 
+sn <- ca_eco %>% 
+  filter(Region == "Sierra Nevada") %>% 
+  st_join(ca_dams)
+
+# Then plot:
+ggplot(sn) +
+  geom_sf(data = ca_counties, fill = "wheat3", color = "NA") +
+  geom_sf(fill = "lemonchiffon4", color = "NA") +
+  geom_point(aes(x = Longitude, y = Latitude), size = 0.5, color = "red4") +
+  theme_void() +
+  coord_sf(datum=NA) +
+  labs(x = "", y = "", title = "CA Dams in Sierra Nevada Eco-Region")
+
+```
+
+####Example 3. Santa Barbara County eco-regions
+
+Can plot just pieces using st_intersection (for example, if we only want to plot eco-regions in Santa Barbara County), and crop graphing space with coord_sf() limits. 
+
+```{r}
+
+# Get just SB county
+sb <- ca_counties %>% 
+  filter(NAME == "Santa Barbara")
+
+# Clip eco-region spatial data to intersection with SB county:
+eco_clip <- st_intersection(ca_eco, sb)
+
+# Plot that!
+ggplot(eco_clip) +
+  geom_sf(data = ca_counties, fill = "gray90", color = "gray80", size = 0.2) + # First add gray California
+  geom_sf(aes(fill = Region), color = "NA") + # ...then add eco-regions (clipped)
+  scale_fill_manual(values = c("darkolivegreen2","darkolivegreen","gold2")) + # Change color scheme
+  coord_sf(xlim = c(-121,-119), ylim = c(33.5,35.5)) + # Crop plotting area
+  geom_point(aes(x = -119.6982, y = 34.4208), size = 2) + # Add a point for SB City
+  geom_text(x = -119.6982, y = 34.35, label = "Santa Barbara") +
+  theme_minimal() + # Update theme
+  theme(legend.position = c(0.5,0.15)) +# Move the legend
+  labs(x = "", y = "", title = "Santa Barbara County Eco-Regions")
+
+```
+
+####Example 4. Intro to interactive plots with tmap
+
+```{r}
+
+# First, create a tmap object
+map_sb_eco <- tm_shape(eco_clip) + 
+  tm_polygons() # Use tm_polygons for fill + lines; but can just show fill or borders (tm_fill or tm_borders)!
+
+# Check class
+# class(map_sb_eco)
+
+# View it (note: some bg layers can take a while...)
+tmap_mode("view")
+map_sb_eco
+
+```
+
+Add color scheme, transparency, borders:
+```{r}
+# Now let's make something a little more colorful: 
+map_sb_eco2 <- tm_shape(eco_clip) +
+  tm_fill("Region", palette = "RdPu", alpha = 0.5) +
+  tm_shape(ca_counties) + 
+  tm_borders()
+
+tmap_mode("view")
+map_sb_eco2
+
+# Extra: Want just borders?
+tmap_mode("view")
+  tm_basemap("Esri.NatGeoWorldMap") +
+  tm_shape(eco_clip) + 
+  tm_borders(col = "white", lwd = 2)
+
+# For more basemaps, see leaflet::providers (try a few...)
+
+```
+
+####Example 5. SB fault line data
+
+Fault line data from California Dept. of Conservation:  <https://maps.conservation.ca.gov/geology/#datalist>
+
+Separate fault line types syncline/anticline, certain/concealed, direction columns using tidyr::separate(). 
+
+```{r}
+fault_lines <- read_sf(dsn = ".", layer = "GMC_str_arc") %>% 
+  st_transform(crs = 4326) %>% 
+  separate(LTYPE, into = c("syn_ant", "certainty", "direction"), sep = ",")
+
+# Base plot:
+plot(fault_lines)
+
+# All CA: 
+
+ggplot() +
+  geom_sf(data = ca_counties, fill = "black", color = "NA") +
+  geom_sf(data = fault_lines, aes(color = syn_ant)) +
+  theme_dark()
+
+# Limit to faults within SB polygon: 
+sb_faults <- fault_lines %>% 
+  st_intersection(sb) 
+
+# Plotting with ggplot: 
+ggplot() +
+  geom_sf(data = sb) +
+  geom_sf(data = sb_faults, aes(color = syn_ant))
+
+# Plotting with tmap: 
+
+tmap_mode("view")
+tm_basemap("CartoDB.DarkMatter") +
+  tm_shape(sb) +
+  tm_borders(col = "gray50", lwd = 2) +
+  tm_shape(sb_faults) +
+  tm_lines(col = "syn_ant", palette = c("orange","purple"), lwd = 2)
+
+```
+
+####Example 6. Faceted maps - just how you'd expect it to work. In ggplot and with tm_facets.
+
+```{r}
+
+ggplot() +
+  geom_sf(data = ca_counties, fill = "black", color = "NA") +
+  geom_sf(data = fault_lines, aes(color = syn_ant)) +
+  theme_dark() +
+  facet_wrap(~syn_ant) # Choose variable to facet by
+
+# Can also do this with tmap: 
+
+tm_basemap("CartoDB.DarkMatter") +
+  tm_shape(sb) +
+  tm_borders(col = "gray50", lwd = 2) +
+  tm_shape(sb_faults) +
+  tm_lines(col = "syn_ant", palette = c("orange","purple"), lwd = 2) +
+  tm_facets(by = "syn_ant")
+
+```
+
+####Example 7. Creating spatial data from latitude/longitude information
+
+California Sensitive Shoreline Sites (CA DFW: <http://data-cdfw.opendata.arcgis.com/datasets/252b33ef5ce94e1d8fc4cad67731b277_0>)
+
+"The purpose of the sensitive site layer is to provide knowledge to spill responders of the location of sensitive sites in order to protect them during a spill response."
+
+Read in the data:
+```{r}
+
+ca_sites <- read_csv("cadfw_sensitive_sites.csv")
+
+```
+
+Make it spatial: 
+```{r}
+
+# Read in by longitude and latitude in CSV, and set CRS
+
+sites_sf <- st_as_sf(ca_sites, coords = c("LONDD","LATDD"), crs = 4326)
+
+# Then make a plot: 
+
+ggplot() +
+  geom_sf(data = ca_counties, fill = "gray40") +
+  geom_sf(data = sites_sf, aes(color = PRI_CODE), size = 0.5)
+
+```
+
+Example 8. Chloropleths (color coded by value/outcome)
+
+Find counts of dams per county:
+```{r}
+
+intersection <- st_intersection(x = ca_dams, y = ca_counties)
+
+dams_per_county <- intersection %>% 
+  group_by(NAME) %>% 
+  tally()
+
+# Check it out: 
+# View(dams_per_county)
+
+# Then merge to the ca_counties data: 
+
+ca_tot <- ca_counties %>% 
+  st_join(dams_per_county) %>% 
+  dplyr::select(NAME.x, n) %>%
+  rename(name = NAME.x)
+
+# Reassign NA values to zero:
+ca_tot$n[is.na(ca_tot$n)] <- 0
+
+
+```
+
+Make a map with color indicating number of dams: 
+
+```{r}
+
+ggplot() +
+  geom_sf(data =ca_tot, aes(fill = n), size = 0.2) +
+  theme_minimal() +
+  scale_fill_continuous(low = "yellow", high = "red")
+
+```
+
+
