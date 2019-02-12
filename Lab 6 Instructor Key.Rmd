@@ -37,7 +37,7 @@ library(RColorBrewer)
 library(raster)
 ```
 
-###Useful information on shapefile files (from gisgeography.com):
+###Useful information on file types (from gisgeography.com):
 
 - **.shp** is a mandatory Esri file that gives features their geometry. Every shapefile has its own .shp file that represent spatial vector data. For example, it could be points, lines and polygons in a map.
 
@@ -68,10 +68,6 @@ Accessed from: <https://hub.arcgis.com/datasets/98a09bec89c84681ae1701a2eb62f599
 Data: California eco-regions (EPA)
 
 Accessed from: <https://www.epa.gov/eco-research/ecoregion-download-files-state-region-9>
-
-Data: California counties
-
-Accessed from: 
 
 a. Read in the California ecoregions data (layer "ca_eco"), select only the attribute for eco-region (US_L3NAME), rename that to "Region", simplify the polygons (for time) using st_simplify, and set the CRS:
 ```{r}
